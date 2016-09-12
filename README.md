@@ -2,6 +2,8 @@
 
 This tool is useful for situations where you make many requests for known sets of data, and have partial cache misses.
 
+For example, if you would like to access restaurants `1, 2, 3`, and you already have restaurants `2, 3, 4` in the cache, you should only read restaurant `1` from disk.
+
 ```shell
 npm install --save bastian
 ```
@@ -37,7 +39,7 @@ function serviceCall(ids, language, callback) {
         }
 
         if (response.statusCode !== 200) {
-          return cb(response.statusCode);
+          return cb(new Error("Unable to load data from remote server"));
         }
 
         cb(null, body);
@@ -71,4 +73,7 @@ serviceCall([1, 2, 3], 'es-MX', function(err, data) {
 ## TODO
 
 * Prevent the same process from making duplicate simultaneous lookups
+  * Keep a local array of requested entities
 * Prevent multiple processes from making duplicate simultaneous lookups
+  * Keep a list of requested entities in Redis
+  * Use Pub/Sub to announce when data has become available
