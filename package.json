@@ -4,8 +4,8 @@
   "description": "Handles partial cache misses, generically, using Redis as a cache store",
   "main": "index.js",
   "scripts": {
-    "test": "istanbul cover test/example.spec.js | tap-spec",
-    "test-no-cover": "node ./test/example.spec.js | tap-spec"
+    "test": "istanbul cover tape 'test/*.spec.js' | tap-spec",
+    "test-no-cover": "tape './test/*.spec.js' | tap-spec"
   },
   "keywords": [
     "cache",

@@ -11,14 +11,14 @@ function Bastian(redis) {
 util.inherits(Bastian, EventEmitter);
 
 /**
- * Persists data in Redis, failing silently
+ * Persists data collection in Redis, failing silently
  */
-Bastian.prototype.persistData = function(desc) {
+Bastian.prototype.persistData = function(opts) {
   var self = this;
-  var collection = desc.collection;
-  var primary = desc.primary;
-  var keyPrefix = desc.keyPrefix;
-  var expiration = desc.expiration;
+  var collection = opts.collection;
+  var primary = opts.primary;
+  var keyPrefix = opts.keyPrefix;
+  var expiration = opts.expiration;
 
   if (!collection.length) {
     return;
@@ -27,7 +27,7 @@ Bastian.prototype.persistData = function(desc) {
   var multi = this.redis.multi();
 
   for (var data of collection) {
-    var key = `${keyPrefix}:${data[primary]}`;
+    var key = keyPrefix + ':' + data[primary];
     multi.set(key, JSON.stringify(data));
     if (expiration > 0) {
       multi.expire(key, expiration);
@@ -40,6 +40,37 @@ Bastian.prototype.persistData = function(desc) {
       self.emit('error', saveError);
     }
   });
+};
+
+/**
+ * Persists a single record in Redis, failing silently
+ */
+Bastian.prototype.persistSingle = function(opts) {
+  var self = this;
+  var data = opts.data;
+  var key = opts.key;
+  var expiration = opts.expiration;
+
+  if (!data) {
+    return;
+  }
+
+  if (!expiration) {
+    return void this.redis.set(key, JSON.stringify(data), function(saveError) {
+      if (saveError) {
+        self.emit('error', saveError);
+      }
+    });
+  }
+
+  this.redis.multi()
+    .set(key, JSON.stringify(data))
+    .expire(key, expiration)
+    .exec(function(saveError) {
+      if (saveError) {
+        self.emit('error', saveError);
+      }
+    });
 };
 
 /**
@@ -62,19 +93,21 @@ Bastian.prototype.mergeData = function(rawDataAsArray, newDataArray) {
 };
 
 /**
- * @arg desc.keyPrefix String name of Redis HASH for storing data for this collection
- * @arg desc.ids Array of IDs we are looking for
- * @arg desc.primary String representing primary key of data returned by service
- * @arg desc.handler Function(ids, cb) to be called to lookup missing data
- * @arg desc.expiration Number seconds until data should be expired
+ * Looks up multiple items in a collection
+ *
+ * @arg opts.keyPrefix String key prefix for Redis keys for storing data for this collection
+ * @arg opts.ids Array of IDs we are looking for
+ * @arg opts.primary String representing primary key of data returned by service
+ * @arg opts.handler Function(ids, cb) to be called to lookup missing data
+ * @arg opts.expiration Number seconds until data should be expired
  * @arg callback Function(err, data) to be called when entire lookup is complete
  */
-Bastian.prototype.lookup = function(desc, callback) {
-  var keyPrefix = desc.keyPrefix;
-  var ids = desc.ids;
-  var primary = desc.primary;
-  var handler = desc.handler;
-  var expiration = desc.expiration || 0;
+Bastian.prototype.lookup = function(opts, callback) {
+  var keyPrefix = opts.keyPrefix;
+  var ids = opts.ids;
+  var primary = opts.primary;
+  var handler = opts.handler;
+  var expiration = opts.expiration || 0;
 
   if (!ids.length) {
     return void setImmediate(() => {
@@ -91,7 +124,7 @@ Bastian.prototype.lookup = function(desc, callback) {
   var keys = [];
 
   for (var id of ids) {
-    keys.push(`${keyPrefix}:${id}`);
+    keys.push(keyPrefix + ':' + id);
   }
 
   this.redis.mget(keys, (err, rawDataAsArray) => {
@@ -134,6 +167,57 @@ Bastian.prototype.lookup = function(desc, callback) {
         rawDataAsArray,
         collection
       ));
+    });
+  });
+};
+
+/**
+ * Looks up a single item
+ *
+ * @arg opts.keyPrefix String partial name of Redis key for storing data for this item
+ * @arg opts.id Optional, ID we are looking for, to be combined with keyPrefix
+ * @arg opts.handler Function(id, cb) to be called to lookup missing data
+ * @arg opts.expiration Number seconds until data should be expired
+ * @arg callback Function(err, data) to be called when entire lookup is complete
+ */
+Bastian.prototype.get = function(opts, callback) {
+  var keyPrefix = opts.keyPrefix;
+  var id = opts.id || null;
+  var handler = opts.handler;
+  var expiration = opts.expiration || 0;
+
+  if (!this.redis) {
+    return void setImmediate(() => {
+      handler(id, callback);
+    });
+  }
+
+  let key = keyPrefix + (id ? ':' + id : '');
+
+  this.redis.get(key, (err, rawData) => {
+    if (err) {
+      // Unable to retrieve cache data
+      this.emit('error', err, keyPrefix);
+      return void handler(id, callback);
+    }
+
+    if (rawData) {
+      return void callback(null, JSON.parse(rawData));
+    }
+
+    handler(id, (err, data) => {
+      if (err) {
+        return void callback(err);
+      }
+
+      // This is done asynchronously, we don't care about result
+      this.persistSingle({
+        data,
+        key,
+        expiration
+      });
+
+      callback(null, data);
     });
   });
 };
