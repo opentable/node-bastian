@@ -4,7 +4,7 @@ var test = require('tape');
 var request = require('./helper/request-single.js');
 var Bastian = require('../index.js');
 
-test('get(): Normal successful usage', (t) => {
+test('get(): Normal successful usage', function(t) {
   var redis = Redis.createClient();
   var cache = new Bastian(redis);
 
@@ -26,12 +26,12 @@ test('get(): Normal successful usage', (t) => {
 
       const VERSION = 'v4';
       cache.get({
-        keyPrefix: `TEST-cuisine-${language}-${VERSION}`,
+        keyPrefix: 'TEST-cuisine-' + language + '-' + VERSION,
         id: id,
         expiration: 60 * 60 * 24,
         handler: function(id, cb) {
           var options = {
-            url: `http://restaurant.api.opentable.com/${VERSION}/restaurants/?id=${id}`,
+            url: 'http://restaurant.api.opentable.com/' + VERSION + '/restaurants/?id=' + id,
             json: true,
             headers: {
               "Accept-Language": language
@@ -111,7 +111,7 @@ test('get(): Normal successful usage', (t) => {
   });
 });
 
-test('get(): No redis, go directly to handler', (t) => {
+test('get(): No redis, go directly to handler', function(t) {
   var cache = new Bastian();
 
   cache.get({
@@ -128,7 +128,7 @@ test('get(): No redis, go directly to handler', (t) => {
   });
 });
 
-test('get(): When handler fails, overall operation should fail', (t) => {
+test('get(): When handler fails, overall operation should fail', function(t) {
   var cache = new Bastian();
 
   cache.get({
@@ -143,7 +143,7 @@ test('get(): When handler fails, overall operation should fail', (t) => {
   });
 });
 
-test('get(): When no ID is provided, operation should run normally', (t) => {
+test('get(): When no ID is provided, operation should run normally', function(t) {
   var cache = new Bastian();
 
   cache.get({
@@ -160,7 +160,7 @@ test('get(): When no ID is provided, operation should run normally', (t) => {
   });
 });
 
-test('get(): When Redis.GET fails, still run the handler', (t) => {
+test('get(): When Redis.GET fails, still run the handler', function(t) {
   var failureGetRedis = {
     get: function(data, cb) {
       setImmediate(function() {
@@ -190,7 +190,7 @@ test('get(): When Redis.GET fails, still run the handler', (t) => {
   });
 });
 
-test('get(): With redis, no expiration', (t) => {
+test('get(): With redis, no expiration', function(t) {
   var redis = Redis.createClient();
   redis.del([
     'no-expire:1',
@@ -213,7 +213,7 @@ test('get(): With redis, no expiration', (t) => {
   });
 });
 
-test('get(): With redis, no id', (t) => {
+test('get(): With redis, no id', function(t) {
   var redis = Redis.createClient();
   redis.del([
     'no-expire',

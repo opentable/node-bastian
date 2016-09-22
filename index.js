@@ -26,13 +26,13 @@ Bastian.prototype.persistData = function(opts) {
 
   var multi = this.redis.multi();
 
-  for (var data of collection) {
+  collection.forEach(function(data) {
     var key = keyPrefix + ':' + data[primary];
     multi.set(key, JSON.stringify(data));
     if (expiration > 0) {
       multi.expire(key, expiration);
     }
-  }
+  });
 
   multi.exec(function(saveError) {
     if (saveError) {
@@ -82,7 +82,9 @@ Bastian.prototype.mergeData = function(rawDataAsArray, newDataArray) {
   }
 
   var completeArray = rawDataAsArray
-    .filter(d => !!d)
+    .filter(function(d) {
+      return !!d;
+    })
     .map(JSON.parse);
 
   if (newDataArray.length) {
@@ -108,36 +110,39 @@ Bastian.prototype.lookup = function(opts, callback) {
   var primary = opts.primary;
   var handler = opts.handler;
   var expiration = opts.expiration || 0;
+  var self = this;
 
   if (!ids.length) {
-    return void setImmediate(() => {
+    return void setImmediate(function() {
       callback(null, []);
     });
   }
 
   if (!this.redis) {
-    return void setImmediate(() => {
+    return void setImmediate(function() {
       handler(ids, callback);
     });
   }
 
   var keys = [];
 
-  for (var id of ids) {
+  ids.forEach(function(id) {
     keys.push(keyPrefix + ':' + id);
-  }
+  });
 
-  this.redis.mget(keys, (err, rawDataAsArray) => {
+  this.redis.mget(keys, function(err, rawDataAsArray) {
     if (err) {
       // Unable to retrieve cache data
-      this.emit('error', err, keyPrefix);
+      self.emit('error', err, keyPrefix);
       return void handler(ids, callback);
     }
 
     var dataHash = _.zipObject(ids, rawDataAsArray);
 
     // Empty MGET items have null as value
-    var discoveredIds = Object.keys(_.pickBy(dataHash, v => !!v));
+    var discoveredIds = Object.keys(_.pickBy(dataHash, function(v) {
+      return !!v;
+    }));
 
     var remainingIds = _.difference(
       ids.map(String),
@@ -145,25 +150,25 @@ Bastian.prototype.lookup = function(opts, callback) {
     );
 
     if (!remainingIds.length) {
-      return void callback(null, this.mergeData(
+      return void callback(null, self.mergeData(
         rawDataAsArray
       ));
     }
 
-    handler(remainingIds, (err, collection) => {
+    handler(remainingIds, function(err, collection) {
       if (err) {
         return void callback(err);
       }
 
       // This is done asynchronously, we don't care about result
-      this.persistData({
-        collection,
-        primary,
-        keyPrefix,
-        expiration
+      self.persistData({
+        collection: collection,
+        primary: primary,
+        keyPrefix: keyPrefix,
+        expiration: expiration
       });
 
-      callback(null, this.mergeData(
+      callback(null, self.mergeData(
         rawDataAsArray,
         collection
       ));
@@ -185,19 +190,20 @@ Bastian.prototype.get = function(opts, callback) {
   var id = opts.id || null;
   var handler = opts.handler;
   var expiration = opts.expiration || 0;
+  var self = this;
 
   if (!this.redis) {
-    return void setImmediate(() => {
+    return void setImmediate(function() {
       handler(id, callback);
     });
   }
 
-  let key = keyPrefix + (id ? ':' + id : '');
+  var key = keyPrefix + (id ? ':' + id : '');
 
-  this.redis.get(key, (err, rawData) => {
+  this.redis.get(key, function(err, rawData) {
     if (err) {
       // Unable to retrieve cache data
-      this.emit('error', err, keyPrefix);
+      self.emit('error', err, keyPrefix);
       return void handler(id, callback);
     }
 
@@ -205,16 +211,16 @@ Bastian.prototype.get = function(opts, callback) {
       return void callback(null, JSON.parse(rawData));
     }
 
-    handler(id, (err, data) => {
+    handler(id, function(err, data) {
       if (err) {
         return void callback(err);
       }
 
       // This is done asynchronously, we don't care about result
-      this.persistSingle({
-        data,
-        key,
-        expiration
+      self.persistSingle({
+        data: data,
+        key: key,
+        expiration: expiration
       });
 
       callback(null, data);
