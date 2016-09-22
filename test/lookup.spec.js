@@ -5,7 +5,7 @@ var redis = Redis.createClient();
 var request = require('./helper/request.js');
 var Bastian = require('../index.js');
 
-test('normal successful usage', (t) => {
+test('lookup(): Normal successful usage', (t) => {
   var cache = new Bastian(redis);
 
   cache.on('error', function(err) {
@@ -52,7 +52,7 @@ test('normal successful usage', (t) => {
             }
           };
 
-          console.log(options.url);
+          t.comment(options.url);
 
           if (testRun === 1) {
             t.equal(ids[0], '1');
@@ -137,7 +137,7 @@ test('normal successful usage', (t) => {
   });
 });
 
-test('no redis, go directly to handler', (t) => {
+test('lookup(): No redis, go directly to handler', (t) => {
   var cache = new Bastian();
 
   cache.lookup({
@@ -162,7 +162,7 @@ test('no redis, go directly to handler', (t) => {
 
 
 
-test('When handler fails, overall operation should fail', (t) => {
+test('lookup(): When handler fails, overall operation should fail', (t) => {
   var cache = new Bastian();
 
   cache.lookup({
@@ -178,7 +178,7 @@ test('When handler fails, overall operation should fail', (t) => {
   });
 });
 
-test('When no IDs are provided, operation shouold qucikly return an array', (t) => {
+test('lookup(): When no IDs are provided, operation shouold qucikly return an array', (t) => {
   var cache = new Bastian();
 
   cache.lookup({
@@ -194,7 +194,7 @@ test('When no IDs are provided, operation shouold qucikly return an array', (t) 
   });
 });
 
-test('When Redis.MGET fails, still run the handler', (t) => {
+test('lookup(): When Redis.MGET fails, still run the handler', (t) => {
   var failureMgetRedis = {
     mget: function(data, cb) {
       setImmediate(function() {

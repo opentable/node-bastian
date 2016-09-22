@@ -8,7 +8,7 @@ For example, if you would like to access restaurants `1, 2, 3`, and you already 
 npm install --save bastian
 ```
 
-## Example Usage
+## Example Collection Usage
 
 ```javascript
 var request = require('request');
@@ -42,7 +42,7 @@ function serviceCall(ids, language, callback) {
           return cb(new Error("Unable to load data from remote server"));
         }
 
-        cb(null, body);
+        cb(null, body); // Be sure to resolve an array of objects with id (primary) attributes
       });
     }
   }, callback);
@@ -67,7 +67,72 @@ serviceCall([1, 2, 3], 'es-MX', function(err, data) {
   // Request: http://cuisine.api.opentable.com/v4/cuisines/?lang=es-MX&ids=[1,2,3]
   // data contains items 1, 2, 3
 });
+```
 
+## Example Singular Usage
+
+We also expose a method called `.get()` which is useful for loading singular items.
+
+Note that the `id` parameter is optional.
+If present it will be appended to the key in the same manner that `lookup()` appends (they're compatible).
+If missing it will not be appended and will not be provided to `handler()`.
+
+```javascript
+var request = require('request');
+var redis = require('redis').createClient();
+var Bastian = require('bastian');
+
+var cache = new Bastian(redis);
+
+cache.on('error', function(err) {
+  assert.ifError(err);
+});
+
+function serviceCall(id, language, callback) {
+  const VERSION = 'v4';
+  cache.get({
+    keyPrefix: 'restaurant-' + language + '-' + VERSION,
+    id: id,
+    expiration: 60 * 60 * 24,
+    handler: function(id, cb) {
+      var url = 'http://restaurant.api.opentable.com/' + VERSION + '/restaurants/?lang=' + language + '&id=' + ids;
+
+      console.log(`Request: ${url}`);
+
+      request(url, function(err, response, body) {
+        if (err) {
+          return cb(err);
+        }
+
+        if (response.statusCode !== 200) {
+          return cb(new Error("Unable to load data from remote server"));
+        }
+
+        cb(null, body); // Whatever is returned will be cached
+      });
+    }
+  }, callback);
+}
+
+serviceCall(1, 'en-US', function(err, data) {
+  // Request: http://restaurant.api.opentable.com/v4/restaurants/?lang=en-US&id=1
+  // data contains item 1
+});
+
+serviceCall(2, 'en-US', function(err, data) {
+  // Request: http://restaurant.api.opentable.com/v4/restaurants/?lang=en-US&id=2
+  // data contains item 2
+});
+
+serviceCall(1, 'en-US', function(err, data) {
+  // No URL request is made!
+  // data contains item 1
+});
+
+serviceCall(1, 'es-MX', function(err, data) {
+  // Request: http://restaurant.api.opentable.com/v4/restaurants/?lang=es-MX&id=1
+  // data contains item 1
+});
 ```
 
 ## TODO
