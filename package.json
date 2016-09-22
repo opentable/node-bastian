@@ -1,6 +1,6 @@
 {
   "name": "bastian",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "description": "Handles partial cache misses, generically, using Redis as a cache store",
   "main": "index.js",
   "scripts": {
