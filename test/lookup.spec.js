@@ -5,7 +5,7 @@ var redis = Redis.createClient();
 var request = require('./helper/request.js');
 var Bastian = require('../index.js');
 
-test('lookup(): Normal successful usage', (t) => {
+test('lookup(): Normal successful usage', function(t) {
   var cache = new Bastian(redis);
 
   cache.on('error', function(err) {
@@ -40,12 +40,12 @@ test('lookup(): Normal successful usage', (t) => {
       const VERSION = 'v4';
       cache.lookup({
         primary: 'id',
-        keyPrefix: `TEST-cuisine-${language}-${VERSION}`,
+        keyPrefix: 'TEST-cuisine-' + language + '-' + VERSION,
         ids: ids,
         expiration: 60 * 60 * 24,
         handler: function(ids, cb) {
           var options = {
-            url: `http://cuisine.api.opentable.com/${VERSION}/cuisines/?ids=[${ids}]`,
+            url: 'http://cuisine.api.opentable.com/' + VERSION + '/cuisines/?ids=[' + ids + ']',
             json: true,
             headers: {
               "Accept-Language": language
@@ -137,7 +137,7 @@ test('lookup(): Normal successful usage', (t) => {
   });
 });
 
-test('lookup(): No redis, go directly to handler', (t) => {
+test('lookup(): No redis, go directly to handler', function(t) {
   var cache = new Bastian();
 
   cache.lookup({
@@ -160,9 +160,7 @@ test('lookup(): No redis, go directly to handler', (t) => {
   });
 });
 
-
-
-test('lookup(): When handler fails, overall operation should fail', (t) => {
+test('lookup(): When handler fails, overall operation should fail', function(t) {
   var cache = new Bastian();
 
   cache.lookup({
@@ -178,7 +176,7 @@ test('lookup(): When handler fails, overall operation should fail', (t) => {
   });
 });
 
-test('lookup(): When no IDs are provided, operation shouold qucikly return an array', (t) => {
+test('lookup(): When no IDs are provided, operation shouold qucikly return an array', function(t) {
   var cache = new Bastian();
 
   cache.lookup({
@@ -194,7 +192,7 @@ test('lookup(): When no IDs are provided, operation shouold qucikly return an ar
   });
 });
 
-test('lookup(): When Redis.MGET fails, still run the handler', (t) => {
+test('lookup(): When Redis.MGET fails, still run the handler', function(t) {
   var failureMgetRedis = {
     mget: function(data, cb) {
       setImmediate(function() {
