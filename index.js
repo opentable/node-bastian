@@ -1,7 +1,8 @@
 const EventEmitter = require('events');
+const opossum = require('opossum');
 const util = require('util');
-
-var _ = require('lodash');
+const _ = require('lodash');
+let breakers = {};
 
 function Bastian(redis) {
   EventEmitter.call(this);
@@ -10,10 +11,22 @@ function Bastian(redis) {
 
 util.inherits(Bastian, EventEmitter);
 
+function __handler(handler, ids) {
+  return new Promise((resolve, reject) => {
+    handler(ids, (err, res) => {
+      if (err) {
+        return reject(err);
+      }
+      return resolve(res);
+    });
+  });
+};
+
+
 /**
  * Persists data collection in Redis, failing silently
  */
-Bastian.prototype.persistData = function(opts) {
+Bastian.prototype.persistData = function (opts) {
   var self = this;
   var collection = opts.collection;
   var primary = opts.primary;
@@ -26,7 +39,7 @@ Bastian.prototype.persistData = function(opts) {
 
   var multi = this.redis.multi();
 
-  collection.forEach(function(data) {
+  collection.forEach(function (data) {
     var key = keyPrefix + ':' + data[primary];
     multi.set(key, JSON.stringify(data));
     if (expiration > 0) {
@@ -34,7 +47,7 @@ Bastian.prototype.persistData = function(opts) {
     }
   });
 
-  multi.exec(function(saveError) {
+  multi.exec(function (saveError) {
     if (saveError) {
       // Problem persisting data to redis
       self.emit('error', saveError);
@@ -45,7 +58,7 @@ Bastian.prototype.persistData = function(opts) {
 /**
  * Persists a single record in Redis, failing silently
  */
-Bastian.prototype.persistSingle = function(opts) {
+Bastian.prototype.persistSingle = function (opts) {
   var self = this;
   var data = opts.data;
   var key = opts.key;
@@ -56,7 +69,7 @@ Bastian.prototype.persistSingle = function(opts) {
   }
 
   if (!expiration) {
-    return void this.redis.set(key, JSON.stringify(data), function(saveError) {
+    return void this.redis.set(key, JSON.stringify(data), function (saveError) {
       if (saveError) {
         self.emit('error', saveError);
       }
@@ -66,7 +79,7 @@ Bastian.prototype.persistSingle = function(opts) {
   this.redis.multi()
     .set(key, JSON.stringify(data))
     .expire(key, expiration)
-    .exec(function(saveError) {
+    .exec(function (saveError) {
       if (saveError) {
         self.emit('error', saveError);
       }
@@ -76,13 +89,13 @@ Bastian.prototype.persistSingle = function(opts) {
 /**
  * Merges existing data with new data
  */
-Bastian.prototype.mergeData = function(rawDataAsArray, newDataArray) {
+Bastian.prototype.mergeData = function (rawDataAsArray, newDataArray) {
   if (!newDataArray) {
     newDataArray = [];
   }
 
   var completeArray = rawDataAsArray
-    .filter(function(d) {
+    .filter(function (d) {
       return !!d;
     })
     .map(JSON.parse);
@@ -102,9 +115,10 @@ Bastian.prototype.mergeData = function(rawDataAsArray, newDataArray) {
  * @arg opts.primary String representing primary key of data returned by service
  * @arg opts.handler Function(ids, cb) to be called to lookup missing data
  * @arg opts.expiration Number seconds until data should be expired
+ * @arg opts.enableCircuitBreaker Enable Circuit Breaking
  * @arg callback Function(err, data) to be called when entire lookup is complete
  */
-Bastian.prototype.lookup = function(opts, callback) {
+Bastian.prototype.lookup = function (opts, callback) {
   var keyPrefix = opts.keyPrefix;
   var ids = opts.ids;
   var primary = opts.primary;
@@ -112,35 +126,47 @@ Bastian.prototype.lookup = function(opts, callback) {
   var expiration = opts.expiration || 0;
   var self = this;
 
+  if (opts.enableCircuitBreaker && !breakers[opts.handlerName]) {
+    breakers[opts.handlerName] = opossum(__handler, {});
+  }
+
   if (!ids.length) {
-    return void setImmediate(function() {
+    return void setImmediate(function () {
       callback(null, []);
     });
   }
 
   if (!this.redis) {
-    return void setImmediate(function() {
-      handler(ids, callback);
+    return void setImmediate(function () {
+      opts.enableCircuitBreaker ?
+        breakers[opts.handlerName].fire(handler, ids)
+          .then(res => callback(null, res))
+          .catch(err => callback(err)) :
+        handler(ids, callback);
     });
   }
 
   var keys = [];
 
-  ids.forEach(function(id) {
+  ids.forEach(function (id) {
     keys.push(keyPrefix + ':' + id);
   });
 
-  this.redis.mget(keys, function(err, rawDataAsArray) {
+  this.redis.mget(keys, function (err, rawDataAsArray) {
     if (err) {
       // Unable to retrieve cache data
       self.emit('error', err, keyPrefix);
-      return void handler(ids, callback);
+      return void opts.enableCircuitBreaker ?
+        breakers[opts.handlerName].fire(handler, ids)
+          .then(res => callback(null, res))
+          .catch(err => callback(err)) :
+        handler(ids, callback);
     }
 
     var dataHash = _.zipObject(ids, rawDataAsArray);
 
     // Empty MGET items have null as value
-    var discoveredIds = Object.keys(_.pickBy(dataHash, function(v) {
+    var discoveredIds = Object.keys(_.pickBy(dataHash, function (v) {
       return !!v;
     }));
 
@@ -155,7 +181,7 @@ Bastian.prototype.lookup = function(opts, callback) {
       ));
     }
 
-    handler(remainingIds, function(err, collection) {
+    handler(remainingIds, function (err, collection) {
       if (err) {
         return void callback(err);
       }
@@ -183,35 +209,60 @@ Bastian.prototype.lookup = function(opts, callback) {
  * @arg opts.id Optional, ID we are looking for, to be combined with keyPrefix
  * @arg opts.handler Function(id, cb) to be called to lookup missing data
  * @arg opts.expiration Number seconds until data should be expired
+ * @arg opts.enableCircuitBreaker Enable Circuit Breaking
  * @arg callback Function(err, data) to be called when entire lookup is complete
  */
-Bastian.prototype.get = function(opts, callback) {
+Bastian.prototype.get = function (opts, callback) {
   var keyPrefix = opts.keyPrefix;
   var id = opts.id || null;
   var handler = opts.handler;
   var expiration = opts.expiration || 0;
   var self = this;
 
+  if (opts.enableCircuitBreaker && !breakers[opts.handlerName]) {
+    breakers[opts.handlerName] = opossum(__handler, {});
+  }
+
   if (!this.redis) {
-    return void setImmediate(function() {
-      handler(id, callback);
+    return void setImmediate(function () {
+      opts.enableCircuitBreaker ? breakers[opts.handlerName].fire(handler, id)
+        .then(res => callback(null, res))
+        .catch(err => callback(err)) :
+        handler(id, callback);
     });
   }
 
   var key = keyPrefix + (id ? ':' + id : '');
 
-  this.redis.get(key, function(err, rawData) {
+  this.redis.get(key, function (err, rawData) {
     if (err) {
       // Unable to retrieve cache data
       self.emit('error', err, keyPrefix);
-      return void handler(id, callback);
+      return void opts.enableCircuitBreaker ? breakers[opts.handlerName].fire(handler, id)
+        .then(res => callback(null, res))
+        .catch(err => callback(err)) :
+        handler(id, callback);
     }
 
     if (rawData) {
       return void callback(null, JSON.parse(rawData));
     }
 
-    handler(id, function(err, data) {
+    if (opts.enableCircuitBreaker) {
+      breakers[opts.handlerName].fire(handler, id)
+        .then(res => {
+          self.persistSingle({
+            data: res,
+            key: key,
+            expiration: expiration
+          });
+
+          callback(null, data);
+        })
+        .catch(err => void callback(err));
+    }
+
+    handler(id, function (err, data) {
       if (err) {
         return void callback(err);
       }

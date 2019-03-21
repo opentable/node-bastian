@@ -16,7 +16,8 @@
   "author": "Thomas Hunter II <thunter@opentable.com>",
   "license": "BSD-2-Clause",
   "dependencies": {
-    "lodash": "^4.15.0"
+    "lodash": "^4.15.0",
+    "opossum": "^1.11.0"
   },
   "devDependencies": {
     "async": "^2.0.1",
