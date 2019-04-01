@@ -2,6 +2,8 @@ const EventEmitter = require('events');
 const opossum = require('opossum');
 const util = require('util');
 const _ = require('lodash');
+
+const createBreaker = require('./circuit-breaker');
 let breakers = {};
 
 function Bastian(redis) {
@@ -11,17 +13,18 @@ function Bastian(redis) {
 
 util.inherits(Bastian, EventEmitter);
 
-function __handler(handler, ids) {
-  return new Promise((resolve, reject) => {
-    handler(ids, (err, res) => {
-      if (err) {
-        return reject(err);
-      }
-      return resolve(res);
-    });
-  });
-};
+function __handle(handler, ids, eventEmitter, settings, callback) {
+  const { serviceName } = settings;
 
+  if (!breakers[serviceName]) {
+    breakers[serviceName] = createBreaker(handler, eventEmitter, settings)
+  }
+
+  console.log('>>> Fire ', ids);
+  return breakers[serviceName].fire(ids)
+    .then(res => callback(null, res))
+    .catch(err => callback(err));
+};
 
 /**
  * Persists data collection in Redis, failing silently
@@ -115,7 +118,12 @@ Bastian.prototype.mergeData = function (rawDataAsArray, newDataArray) {
  * @arg opts.primary String representing primary key of data returned by service
  * @arg opts.handler Function(ids, cb) to be called to lookup missing data
  * @arg opts.expiration Number seconds until data should be expired
- * @arg opts.enableCircuitBreaker Enable Circuit Breaking
+ * @arg opts.serviceName Name of the service the handler is calling
+ * @arg opts.circuitBreakerSettings.enabled Enable Circuit Breaking
+ * @arg opts.circuitBreakerSettings.errorThresholdPercentage The error percentage at
+ * which to open the circuit and start short-circuiting requests to fallback.
+ * @arg opts.circuitBreakerSettings.resetTimeout The time in milliseconds to wait before
+ * setting the breaker to `halfOpen` state, and trying the action again.
  * @arg callback Function(err, data) to be called when entire lookup is complete
  */
 Bastian.prototype.lookup = function (opts, callback) {
@@ -124,11 +132,9 @@ Bastian.prototype.lookup = function (opts, callback) {
   var primary = opts.primary;
   var handler = opts.handler;
   var expiration = opts.expiration || 0;
+  var serviceName = opts.serviceName;
+  var circuitBreakerSettings = opts.circuitBreakerSettings;
   var self = this;
-
-  if (opts.enableCircuitBreaker && !breakers[opts.handlerName]) {
-    breakers[opts.handlerName] = opossum(__handler, {});
-  }
 
   if (!ids.length) {
     return void setImmediate(function () {
@@ -138,11 +144,12 @@ Bastian.prototype.lookup = function (opts, callback) {
 
   if (!this.redis) {
     return void setImmediate(function () {
-      opts.enableCircuitBreaker ?
-        breakers[opts.handlerName].fire(handler, ids)
-          .then(res => callback(null, res))
-          .catch(err => callback(err)) :
-        handler(ids, callback);
+      __handle(
+        handler,
+        ids,
+        self.emit,
+        Object.assign({ serviceName }, circuitBreakerSettings),
+        callback);
     });
   }
 
@@ -156,11 +163,12 @@ Bastian.prototype.lookup = function (opts, callback) {
     if (err) {
       // Unable to retrieve cache data
       self.emit('error', err, keyPrefix);
-      return void opts.enableCircuitBreaker ?
-        breakers[opts.handlerName].fire(handler, ids)
-          .then(res => callback(null, res))
-          .catch(err => callback(err)) :
-        handler(ids, callback);
+      return void __handle(
+        handler,
+        ids,
+        self.emit,
+        Object.assign({ serviceName }, circuitBreakerSettings),
+        callback);
     }
 
     var dataHash = _.zipObject(ids, rawDataAsArray);
@@ -181,24 +189,28 @@ Bastian.prototype.lookup = function (opts, callback) {
       ));
     }
 
-    handler(remainingIds, function (err, collection) {
-      if (err) {
-        return void callback(err);
-      }
+    __handle(
+      handler,
+      remainingIds,
+      self.emit,
+      Object.assign({ serviceName }, circuitBreakerSettings),
+      (err, collection) => {
+        if (err) {
+          return void callback(err);
+        }
+        // This is done asynchronously, we don't care about result
+        self.persistData({
+          collection: collection,
+          primary: primary,
+          keyPrefix: keyPrefix,
+          expiration: expiration
+        });
 
-      // This is done asynchronously, we don't care about result
-      self.persistData({
-        collection: collection,
-        primary: primary,
-        keyPrefix: keyPrefix,
-        expiration: expiration
+        callback(null, self.mergeData(
+          rawDataAsArray,
+          collection
+        ));
       });
-
-      callback(null, self.mergeData(
-        rawDataAsArray,
-        collection
-      ));
-    });
   });
 };
 
@@ -209,7 +221,12 @@ Bastian.prototype.lookup = function (opts, callback) {
  * @arg opts.id Optional, ID we are looking for, to be combined with keyPrefix
  * @arg opts.handler Function(id, cb) to be called to lookup missing data
  * @arg opts.expiration Number seconds until data should be expired
- * @arg opts.enableCircuitBreaker Enable Circuit Breaking
+ * @arg opts.serviceName Name of the service the handler is calling
+ * @arg opts.circuitBreakerSettings.enabled Enable Circuit Breaking
+ * @arg opts.circuitBreakerSettings.errorThresholdPercentage The error percentage at
+ * which to open the circuit and start short-circuiting requests to fallback.
+ * @arg opts.circuitBreakerSettings.resetTimeout The time in milliseconds to wait before
+ * setting the breaker to `halfOpen` state, and trying the action again.
  * @arg callback Function(err, data) to be called when entire lookup is complete
  */
 Bastian.prototype.get = function (opts, callback) {
@@ -217,18 +234,22 @@ Bastian.prototype.get = function (opts, callback) {
   var id = opts.id || null;
   var handler = opts.handler;
   var expiration = opts.expiration || 0;
+  var serviceName = opts.serviceName;
+  var circuitBreakerSettings = opts.circuitBreakerSettings;
   var self = this;
 
-  if (opts.enableCircuitBreaker && !breakers[opts.handlerName]) {
+  if (opts.enableCircuitBreaker && !breakers[opts.serviceName]) {
     breakers[opts.handlerName] = opossum(__handler, {});
   }
 
   if (!this.redis) {
     return void setImmediate(function () {
-      opts.enableCircuitBreaker ? breakers[opts.handlerName].fire(handler, id)
-        .then(res => callback(null, res))
-        .catch(err => callback(err)) :
-        handler(id, callback);
+      __handle(
+        handler,
+        id,
+        self.emit,
+        Object.assign({ serviceName }, circuitBreakerSettings),
+        callback);
     });
   }
 
@@ -238,44 +259,37 @@ Bastian.prototype.get = function (opts, callback) {
     if (err) {
       // Unable to retrieve cache data
       self.emit('error', err, keyPrefix);
-      return void opts.enableCircuitBreaker ? breakers[opts.handlerName].fire(handler, id)
-        .then(res => callback(null, res))
-        .catch(err => callback(err)) :
-        handler(id, callback);
+      return void __handle(
+        handler,
+        id,
+        self.emit,
+        Object.assign({ serviceName }, circuitBreakerSettings),
+        callback);
     }
 
     if (rawData) {
       return void callback(null, JSON.parse(rawData));
     }
 
-    if (opts.enableCircuitBreaker) {
-      breakers[opts.handlerName].fire(handler, id)
-        .then(res => {
-          self.persistSingle({
-            data: res,
-            key: key,
-            expiration: expiration
-          });
+    __handle(
+      handler,
+      id,
+      self.emit,
+      Object.assign({ serviceName }, circuitBreakerSettings),
+      (err, data) => {
+        if (err) {
+          return void callback(err);
+        }
 
-          callback(null, data);
-        })
-        .catch(err => void callback(err));
-    }
+        // This is done asynchronously, we don't care about result
+        self.persistSingle({
+          data: data,
+          key: key,
+          expiration: expiration
+        });
 
-    handler(id, function (err, data) {
-      if (err) {
-        return void callback(err);
-      }
-
-      // This is done asynchronously, we don't care about result
-      self.persistSingle({
-        data: data,
-        key: key,
-        expiration: expiration
+        callback(null, data);
       });
-
-      callback(null, data);
-    });
   });
 };
 

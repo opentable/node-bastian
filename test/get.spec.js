@@ -28,6 +28,7 @@ test('get(): Normal successful usage', function(t) {
       cache.get({
         keyPrefix: 'TEST-cuisine-' + language + '-' + VERSION,
         id: id,
+        serviceName: 'service-normal',
         expiration: 60 * 60 * 24,
         handler: function(id, cb) {
           var options = {
@@ -117,6 +118,7 @@ test('get(): No redis, go directly to handler', function(t) {
   cache.get({
     keyPrefix: 'no-store',
     id: 1,
+    serviceName: 'service-direct',
     handler: function(id, cb) {
       t.equal(id, 1);
 
@@ -134,6 +136,7 @@ test('get(): When handler fails, overall operation should fail', function(t) {
   cache.get({
     keyPrefix: 'no-store',
     id: 1,
+    serviceName: 'service-name',
     handler: function(id, cb) {
       cb(new Error('uh oh'));
     }
@@ -148,6 +151,7 @@ test('get(): When no ID is provided, operation should run normally', function(t)
 
   cache.get({
     keyPrefix: 'no-data',
+    serviceName: 'service-no-id',
     handler: function(id, cb) {
       t.notOk(id);
       setImmediate(function() {
@@ -181,6 +185,7 @@ test('get(): When Redis.GET fails, still run the handler', function(t) {
   cache.get({
     keyPrefix: 'no-data',
     id: 100,
+    serviceName: 'service-get-fails',
     handler: function(id, cb) {
       cb(null, 'good stuff');
     }
@@ -201,6 +206,7 @@ test('get(): With redis, no expiration', function(t) {
   cache.get({
     keyPrefix: 'no-expire',
     id: 1,
+    serviceName: 'service-no-expiry',
     handler: function(id, cb) {
       t.equal(id, 1);
 
@@ -223,6 +229,7 @@ test('get(): With redis, no id', function(t) {
 
   cache.get({
     keyPrefix: 'no-expire',
+    serviceName: 'service-name',
     handler: function(id, cb) {
       t.equal(id, null, 'id should be null');
 

@@ -5,10 +5,10 @@ var redis = Redis.createClient();
 var request = require('./helper/request.js');
 var Bastian = require('../index.js');
 
-test('lookup(): Normal successful usage', function(t) {
+test('lookup(): Normal successful usage', function (t) {
   var cache = new Bastian(redis);
 
-  cache.on('error', function(err) {
+  cache.on('error', function (err) {
     t.error(err);
   });
 
@@ -24,28 +24,17 @@ test('lookup(): Normal successful usage', function(t) {
   ]);
 
   var cuisineService = {
-    getItems: function(ids, language, callback) {
-      var testRun;
-
-      if (ids[0] === 1 && ids.length === 1 && language === 'en-US') {
-        testRun = 4;
-      } else if (ids[0] === 1 && language === 'en-US') {
-        testRun = 1;
-      } else if (ids[0] === 3 && language === 'en-US') {
-        testRun = 2;
-      } else if (ids[0] === 1 && language === 'es-MX') {
-        testRun = 3;
-      }
-
+    getItems: function (ids, language, testRun, callback) {
       const VERSION = 'v4';
       cache.lookup({
         primary: 'id',
         keyPrefix: 'TEST-cuisine-' + language + '-' + VERSION,
         ids: ids,
         expiration: 60 * 60 * 24,
-        handler: function(ids, cb) {
+        serviceName: `cuisine-service-${testRun}`,
+        handler: function (cuisineIds, cb) {
           var options = {
-            url: 'http://cuisine.api.opentable.com/' + VERSION + '/cuisines/?ids=[' + ids + ']',
+            url: 'http://cuisine.api.opentable.com/' + VERSION + '/cuisines/?ids=[' + cuisineIds + ']',
             json: true,
             headers: {
               "Accept-Language": language
@@ -55,22 +44,22 @@ test('lookup(): Normal successful usage', function(t) {
           t.comment(options.url);
 
           if (testRun === 1) {
-            t.equal(ids[0], '1');
-            t.equal(ids[1], '2');
-            t.equal(ids[2], '3');
+            t.equal(cuisineIds[0], '1');
+            t.equal(cuisineIds[1], '2');
+            t.equal(cuisineIds[2], '3');
           } else if (testRun === 2) {
             // Note that we're not looking for ids[0] === 3 for it has already been cached
-            t.equal(ids[0], '4');
-            t.equal(ids[1], '5');
+            t.equal(cuisineIds[0], '4');
+            t.equal(cuisineIds[1], '5');
           } else if (testRun === 3) {
-            t.equal(ids[0], '1');
-            t.equal(ids[1], '2');
-            t.equal(ids[2], '3');
+            t.equal(cuisineIds[0], '1');
+            t.equal(cuisineIds[1], '2');
+            t.equal(cuisineIds[2], '3');
           } else if (testRun === 4) {
             t.error(new Error('should not execute as all data for this request is in cache'));
           }
 
-          request(options, function(err, response, body) {
+          request(options, function (err, response, body) {
             if (err) {
               return cb(err);
             }
@@ -87,8 +76,8 @@ test('lookup(): Normal successful usage', function(t) {
   };
 
   async.series([
-    function(callback) {
-      cuisineService.getItems([1, 2, 3], 'en-US', function(err, data) {
+    function (callback) {
+      cuisineService.getItems([1, 2, 3], 'en-US', 1, function (err, data) {
         t.error(err, 'no error');
         t.equal(data[0].id, 1);
         t.equal(data[1].id, 2);
@@ -97,8 +86,8 @@ test('lookup(): Normal successful usage', function(t) {
       });
     },
 
-    function(callback) {
-      cuisineService.getItems([3, 4, 5], 'en-US', function(err, data) {
+    function (callback) {
+      cuisineService.getItems([3, 4, 5], 'en-US', 2, function (err, data) {
         t.error(err, 'no error');
         t.equal(data[0].id, 3);
         t.equal(data[1].id, 4);
@@ -107,8 +96,8 @@ test('lookup(): Normal successful usage', function(t) {
       });
     },
 
-    function(callback) {
-      cuisineService.getItems([1, 2, 3], 'es-MX', function(err, data) {
+    function (callback) {
+      cuisineService.getItems([1, 2, 3], 'es-MX', 3, function (err, data) {
         t.error(err, 'no error');
         t.equal(data[0].id, 1);
         t.equal(data[1].id, 2);
@@ -117,14 +106,14 @@ test('lookup(): Normal successful usage', function(t) {
       });
     },
 
-    function(callback) {
-      cuisineService.getItems([1], 'en-US', function(err, data) {
+    function (callback) {
+      cuisineService.getItems([1], 'en-US', 4, function (err, data) {
         t.error(err, 'no error');
         t.equal(data[0].id, 1);
         callback(err, data);
       });
     }
-  ], function(err, result) {
+  ], function (err, result) {
     t.error(err, 'no error');
     t.ok(result[0]);
     t.ok(result[1]);
@@ -144,6 +133,7 @@ test('lookup(): No redis, go directly to handler', function(t) {
     primary: 'id',
     keyPrefix: 'no-store',
     ids: [1, 2, 3],
+    serviceName: 'direct-service',
     handler: function(ids, cb) {
       t.equal(ids.length, 3);
 
@@ -167,6 +157,7 @@ test('lookup(): When handler fails, overall operation should fail', function(t) 
     primary: 'id',
     keyPrefix: 'no-store',
     ids: [1, 2, 3],
+    serviceName: 'fail-service',
     handler: function(ids, cb) {
       cb(new Error('uh oh'));
     }
@@ -183,6 +174,7 @@ test('lookup(): When no IDs are provided, operation shouold qucikly return an ar
     primary: 'id',
     keyPrefix: 'no-data',
     ids: [],
+    serviceName: 'service-name',
     handler: function(ids, cb) {
       throw new Error('should not run');
     }
@@ -214,6 +206,7 @@ test('lookup(): When Redis.MGET fails, still run the handler', function(t) {
     primary: 'id',
     keyPrefix: 'no-data',
     ids: [100],
+    serviceName: 'direct-to-handler-service',
     handler: function(ids, cb) {
       cb(null, 'good stuff');
     }

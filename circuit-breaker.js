@@ -1,28 +1,37 @@
-import opossum from 'opossum';
-import statsd from 'app/adapters/statsd';
+const opossum = require('opossum');
 
-function reportStats({ name, status }) {
-    const statKey = `circuit.service.${name}.${status}`;
-    statsd.increment(statKey);
+function setupEventListeners(breaker, eventEmitter, serviceName) {
+    breaker.on('open', () => eventEmitter.emit('circuit-open', serviceName));
+    breaker.on('halfOpen', () => eventEmitter.emit('circuit-half-open', serviceName));
+    breaker.on('close', () => eventEmitter.emit('circuit-close', serviceName));
 }
 
-function setupEventListeners(breaker, { service }) {
-    breaker.on('open', () => reportStats(service, 'open'));
-    breaker.on('halfOpen', () => reportStats(service, 'open'));
-    breaker.on('close', () => reportStats(service, 'open'));
-}
+function setupCircuitBreakers(handler, eventEmitter, settings) {
+    const {
+        enabled,
+        timeout,
+        errorThresholdPercentage,
+        resetTimeout,
+        serviceName } = settings;
 
-function setupCircuitBreakers(handler, settings) {
-    const breaker = opossum(handler, settings);
+    const breaker = opossum(function (ids) {
+        return new Promise((resolve, reject) => {
+            handler(ids, (err, res) => {
+                if (err) {
+                    return reject(err);
+                }
+                return resolve(res);
+            });
+        });
+    }, {
+            enabled,
+            timeout,
+            errorThresholdPercentage,
+            resetTimeout
+        });
 
-    if (settings.fallback) {
-        breaker.fallback(settings.fallback);
-    }
-
-    setupEventListeners(breaker);
-
+    setupEventListeners(breaker, eventEmitter, serviceName);
     return breaker;
 }
 
-export default setupCircuitBreakers;
-    
+module.exports = setupCircuitBreakers;
