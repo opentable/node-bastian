@@ -1,17 +1,17 @@
 const opossum = require('opossum');
 
 function setupEventListeners(breaker, eventEmitter, serviceName) {
-    breaker.on('open', () => eventEmitter.emit('circuit-open', serviceName));
-    breaker.on('halfOpen', () => eventEmitter.emit('circuit-half-open', serviceName));
-    breaker.on('close', () => eventEmitter.emit('circuit-close', serviceName));
+    breaker.on('open', () => eventEmitter('circuit-open', serviceName));
+    breaker.on('halfOpen', () => eventEmitter('circuit-half-open', serviceName));
+    breaker.on('close', () => eventEmitter('circuit-close', serviceName));
 }
 
 function setupCircuitBreakers(handler, eventEmitter, settings) {
     const {
-        enabled,
-        timeout,
-        errorThresholdPercentage,
-        resetTimeout,
+        enabled = false,
+        timeout = 250,
+        errorThresholdPercentage = 5,
+        resetTimeout = 300,
         serviceName } = settings;
 
     const breaker = opossum(function (ids) {

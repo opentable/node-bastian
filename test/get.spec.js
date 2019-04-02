@@ -4,11 +4,11 @@ var test = require('tape');
 var request = require('./helper/request-single.js');
 var Bastian = require('../index.js');
 
-test('get(): Normal successful usage', function(t) {
+test('get(): Normal successful usage', function (t) {
   var redis = Redis.createClient();
   var cache = new Bastian(redis);
 
-  cache.on('error', function(err) {
+  cache.on('error', function (err) {
     t.error(err);
   });
 
@@ -21,7 +21,7 @@ test('get(): Normal successful usage', function(t) {
 
   var testRun = 0;
   var cuisineService = {
-    getItem: function(id, language, callback) {
+    getItem: function (id, language, callback) {
       testRun += 1;
 
       const VERSION = 'v4';
@@ -30,7 +30,7 @@ test('get(): Normal successful usage', function(t) {
         id: id,
         serviceName: 'service-normal',
         expiration: 60 * 60 * 24,
-        handler: function(id, cb) {
+        handler: function (id, cb) {
           var options = {
             url: 'http://restaurant.api.opentable.com/' + VERSION + '/restaurants/?id=' + id,
             json: true,
@@ -51,7 +51,7 @@ test('get(): Normal successful usage', function(t) {
             t.error(new Error('should not execute as the data for this request is in cache'));
           }
 
-          request(options, function(err, response, body) {
+          request(options, function (err, response, body) {
             if (err) {
               return cb(err);
             }
@@ -68,38 +68,38 @@ test('get(): Normal successful usage', function(t) {
   };
 
   async.series([
-    function(callback) {
-      cuisineService.getItem(1, 'en-US', function(err, data) {
+    function (callback) {
+      cuisineService.getItem(1, 'en-US', function (err, data) {
         t.error(err, 'no error');
         t.equal(data.id, 1);
         callback(err, data);
       });
     },
 
-    function(callback) {
-      cuisineService.getItem(2, 'en-US', function(err, data) {
+    function (callback) {
+      cuisineService.getItem(2, 'en-US', function (err, data) {
         t.error(err, 'no error');
         t.equal(data.id, 2);
         callback(err, data);
       });
     },
 
-    function(callback) {
-      cuisineService.getItem(1, 'es-MX', function(err, data) {
+    function (callback) {
+      cuisineService.getItem(1, 'es-MX', function (err, data) {
         t.error(err, 'no error');
         t.equal(data.id, 1);
         callback(err, data);
       });
     },
 
-    function(callback) {
-      cuisineService.getItem(1, 'en-US', function(err, data) {
+    function (callback) {
+      cuisineService.getItem(1, 'en-US', function (err, data) {
         t.error(err, 'no error');
         t.equal(data.id, 1);
         callback(err, data);
       });
     }
-  ], function(err, result) {
+  ], function (err, result) {
     t.error(err, 'no error');
     t.ok(result[0]);
     t.ok(result[1]);
@@ -112,62 +112,62 @@ test('get(): Normal successful usage', function(t) {
   });
 });
 
-test('get(): No redis, go directly to handler', function(t) {
+test('get(): No redis, go directly to handler', function (t) {
   var cache = new Bastian();
 
   cache.get({
     keyPrefix: 'no-store',
     id: 1,
     serviceName: 'service-direct',
-    handler: function(id, cb) {
+    handler: function (id, cb) {
       t.equal(id, 1);
 
       cb(null, id * 10);
     }
-  }, function(err, data) {
+  }, function (err, data) {
     t.deepEqual(data, 10, 'received data');
     t.end(err);
   });
 });
 
-test('get(): When handler fails, overall operation should fail', function(t) {
+test('get(): When handler fails, overall operation should fail', function (t) {
   var cache = new Bastian();
 
   cache.get({
     keyPrefix: 'no-store',
     id: 1,
-    serviceName: 'service-name',
-    handler: function(id, cb) {
+    serviceName: 'service-fails',
+    handler: function (id, cb) {
       cb(new Error('uh oh'));
     }
-  }, function(err, data) {
+  }, function (err, data) {
     t.ok(err instanceof Error, 'end in error, no data in cache or handler');
     t.end();
   });
 });
 
-test('get(): When no ID is provided, operation should run normally', function(t) {
+test('get(): When no ID is provided, operation should run normally', function (t) {
   var cache = new Bastian();
 
   cache.get({
     keyPrefix: 'no-data',
     serviceName: 'service-no-id',
-    handler: function(id, cb) {
+    handler: function (id, cb) {
       t.notOk(id);
-      setImmediate(function() {
+      setImmediate(function () {
         cb(null, 'ok');
       });
     }
-  }, function(err, data) {
+  }, function (err, data) {
     t.deepEqual(data, 'ok', 'asked for no id, received data');
     t.end(err);
   });
 });
 
-test('get(): When Redis.GET fails, still run the handler', function(t) {
+test('get(): When Redis.GET fails, still run the handler', function (t) {
   var failureGetRedis = {
-    get: function(data, cb) {
-      setImmediate(function() {
+    get: function (data, cb) {
+      setImmediate(function () {
         cb(new Error('mget failed'));
       });
     }
@@ -177,7 +177,7 @@ test('get(): When Redis.GET fails, still run the handler', function(t) {
 
   var didEmitError = false;
 
-  cache.on('error', function(err) {
+  cache.on('error', function (err) {
     didEmitError = true;
     t.ok(err, 'does have error');
   });
@@ -186,16 +186,16 @@ test('get(): When Redis.GET fails, still run the handler', function(t) {
     keyPrefix: 'no-data',
     id: 100,
     serviceName: 'service-get-fails',
-    handler: function(id, cb) {
+    handler: function (id, cb) {
       cb(null, 'good stuff');
     }
-  }, function(err, data) {
+  }, function (err, data) {
     t.ok(didEmitError, 'did emit error');
     t.end(err);
   });
 });
 
-test('get(): With redis, no expiration', function(t) {
+test('get(): With redis, no expiration', function (t) {
   var redis = Redis.createClient();
   redis.del([
     'no-expire:1',
@@ -207,19 +207,19 @@ test('get(): With redis, no expiration', function(t) {
     keyPrefix: 'no-expire',
     id: 1,
     serviceName: 'service-no-expiry',
-    handler: function(id, cb) {
+    handler: function (id, cb) {
       t.equal(id, 1);
 
       cb(null, id * 10);
     }
-  }, function(err, data) {
+  }, function (err, data) {
     t.deepEqual(data, 10, 'received data');
     redis.quit();
     t.end(err);
   });
 });
 
-test('get(): With redis, no id', function(t) {
+test('get(): With redis, no id', function (t) {
   var redis = Redis.createClient();
   redis.del([
     'no-expire',
@@ -229,15 +229,139 @@ test('get(): With redis, no id', function(t) {
 
   cache.get({
     keyPrefix: 'no-expire',
-    serviceName: 'service-name',
-    handler: function(id, cb) {
+    serviceName: 'service-redis-no-id',
+    handler: function (id, cb) {
       t.equal(id, null, 'id should be null');
 
       cb(null, 100);
     }
-  }, function(err, data) {
+  }, function (err, data) {
     t.deepEqual(data, 100, 'received data');
     redis.quit();
     t.end(err);
   });
+});
+
+test('get(): With normal usage', function (t) {
+  var redis = Redis.createClient();
+  redis.del([
+    'no-expire',
+  ]);
+
+  var cache = new Bastian(redis);
+
+  cache.get({
+    keyPrefix: 'no-expire',
+    serviceName: 'service-redis-no-id',
+    handler: function (id, cb) {
+      t.equal(id, null, 'id should be null');
+
+      cb(null, 100);
+    }
+  }, function (err, data) {
+    t.deepEqual(data, 100, 'received data');
+    redis.quit();
+    t.end(err);
+  });
+});
+
+test('Circuit Breaker Enabled', function (t) {
+  test('get(): No redis, go directly to handler', function (t) {
+    var redis = Redis.createClient();
+    redis.del([
+      'no-expire',
+    ]);
+
+    var cache = new Bastian(redis);
+
+    cache.get({
+      keyPrefix: 'no-expire',
+      serviceName: 'service-redis-no-id',
+      circuitBreakerSettings: {
+        enabled: true
+      },
+      handler: function (id, cb) {
+        t.equal(id, null, 'id should be null');
+
+        cb(null, 100);
+      }
+    }, function (err, data) {
+      t.deepEqual(data, 100, 'received data');
+      redis.quit();
+      t.end(err);
+    });
+  });
+  test('get(): When handler fails the circuit should open', function (t) {
+    var redis = Redis.createClient();
+    redis.del([
+      'no-expire',
+    ]);
+
+    var cache = new Bastian(redis);
+    var didEmitError = false;
+
+    cache.on('circuit-open', function (err) {
+      didEmitError = true;
+      t.ok(err, 'circuit is open');
+    });
+    cache.get({
+      keyPrefix: 'no-expire',
+      serviceName: 'service-failure-circuit-open',
+      circuitBreakerSettings: {
+        enabled: true,
+        errorThresholdPercentage: 1
+      },
+      handler: function (id, cb) {
+        cb(new Error('uh oh'));
+      }
+    }, function (err, data) {
+      t.ok(didEmitError, 'did emit error');
+      redis.quit();
+      t.end();
+    });
+  });
+
+  test('get(): When handler fails intermittently', function (t) {
+    var redis = Redis.createClient();
+    redis.del([
+      'no-expire',
+    ]);
+
+    var cache = new Bastian(redis);
+
+    var circuitOpen = false;
+    var circuitHalfOpen = false;
+
+    cache.on('circuit-open', function (err) {
+      circuitOpen = true;
+      t.ok(err, 'circuit is open');
+    });
+
+    cache.on('circuit-half-open', function (err) {
+      circuitHalfOpen = true;
+      t.ok(err, 'circuit is half-open');
+    });
+
+    cache.get({
+      keyPrefix: 'no-expire',
+      serviceName: 'service-failure-circuit',
+      circuitBreakerSettings: {
+        enabled: true,
+        errorThresholdPercentage: 1,
+        resetTimeout: 50
+
+      },
+      handler: function (id, cb) {
+        cb(new Error('uh oh'));
+      }
+    }, function (err, data) {
+      setTimeout(function(){
+        t.ok(circuitOpen, 'did open circuit');
+        t.ok(circuitHalfOpen, 'did half-open circuit');
+        redis.quit();
+        t.end();
+      }, 100);
+    });
+  });
+  t.end();
 });

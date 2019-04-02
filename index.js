@@ -3,7 +3,6 @@ const opossum = require('opossum');
 const util = require('util');
 const _ = require('lodash');
 
-const createBreaker = require('./circuit-breaker');
 let breakers = {};
 
 function Bastian(redis) {
@@ -13,14 +12,40 @@ function Bastian(redis) {
 
 util.inherits(Bastian, EventEmitter);
 
-function __handle(handler, ids, eventEmitter, settings, callback) {
+Bastian.prototype.__handle = function (handler, ids, settings, callback) {
+  var self = this;
+
   const { serviceName } = settings;
 
   if (!breakers[serviceName]) {
-    breakers[serviceName] = createBreaker(handler, eventEmitter, settings)
+    const {
+      enabled = false,
+      timeout = 250,
+      errorThresholdPercentage = 5,
+      resetTimeout = 300,
+      serviceName } = settings;
+
+    breakers[serviceName] = opossum(function (ids) {
+      return new Promise((resolve, reject) => {
+        handler(ids, (err, res) => {
+          if (err) {
+            return reject(err);
+          }
+          return resolve(res);
+        });
+      });
+    }, {
+        enabled,
+        timeout,
+        errorThresholdPercentage,
+        resetTimeout
+      });
+
+    breakers[serviceName].on('open', () => self.emit('circuit-open', serviceName));
+    breakers[serviceName].on('halfOpen', () => self.emit('circuit-half-open', serviceName));
+    breakers[serviceName].on('close', () => self.emit('circuit-close', serviceName));
   }
 
-  console.log('>>> Fire ', ids);
   return breakers[serviceName].fire(ids)
     .then(res => callback(null, res))
     .catch(err => callback(err));
@@ -144,10 +169,9 @@ Bastian.prototype.lookup = function (opts, callback) {
 
   if (!this.redis) {
     return void setImmediate(function () {
-      __handle(
+      self.__handle(
         handler,
         ids,
-        self.emit,
         Object.assign({ serviceName }, circuitBreakerSettings),
         callback);
     });
@@ -163,10 +187,9 @@ Bastian.prototype.lookup = function (opts, callback) {
     if (err) {
       // Unable to retrieve cache data
       self.emit('error', err, keyPrefix);
-      return void __handle(
+      return void self.__handle(
         handler,
         ids,
-        self.emit,
         Object.assign({ serviceName }, circuitBreakerSettings),
         callback);
     }
@@ -189,10 +212,9 @@ Bastian.prototype.lookup = function (opts, callback) {
       ));
     }
 
-    __handle(
+    self.__handle(
       handler,
       remainingIds,
-      self.emit,
       Object.assign({ serviceName }, circuitBreakerSettings),
       (err, collection) => {
         if (err) {
@@ -238,16 +260,11 @@ Bastian.prototype.get = function (opts, callback) {
   var circuitBreakerSettings = opts.circuitBreakerSettings;
   var self = this;
 
-  if (opts.enableCircuitBreaker && !breakers[opts.serviceName]) {
-    breakers[opts.handlerName] = opossum(__handler, {});
-  }
-
   if (!this.redis) {
     return void setImmediate(function () {
-      __handle(
+      self.__handle(
         handler,
         id,
-        self.emit,
         Object.assign({ serviceName }, circuitBreakerSettings),
         callback);
     });
@@ -259,10 +276,9 @@ Bastian.prototype.get = function (opts, callback) {
     if (err) {
       // Unable to retrieve cache data
       self.emit('error', err, keyPrefix);
-      return void __handle(
+      return void self.__handle(
         handler,
         id,
-        self.emit,
         Object.assign({ serviceName }, circuitBreakerSettings),
         callback);
     }
@@ -271,10 +287,9 @@ Bastian.prototype.get = function (opts, callback) {
       return void callback(null, JSON.parse(rawData));
     }
 
-    __handle(
+    self.__handle(
       handler,
       id,
-      self.emit,
       Object.assign({ serviceName }, circuitBreakerSettings),
       (err, data) => {
         if (err) {
