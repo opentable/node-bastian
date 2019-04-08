@@ -142,3 +142,5 @@ serviceCall(1, 'es-MX', function(err, data) {
 * Prevent multiple processes from making duplicate simultaneous lookups
   * Keep a list of requested entities in Redis
   * Use Pub/Sub to announce when data has become available
+* Introduce Circuit breaker for when services go down
+  * Redis has natural back-off logic baked into the client; but internal OT services we can spam when they're down
